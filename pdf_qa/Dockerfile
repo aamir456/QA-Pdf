@@ -7,7 +7,7 @@ WORKDIR /app
 
 # Install CPU-only PyTorch before other deps so pip doesn't pull the 3 GB CUDA wheel
 RUN pip install --no-cache-dir \
-    torch==2.3.1 --index-url https://download.pytorch.org/whl/cpu
+    torch==2.4.1 --index-url https://download.pytorch.org/whl/cpu
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
