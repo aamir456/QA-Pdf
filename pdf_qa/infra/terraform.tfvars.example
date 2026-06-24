@@ -1,0 +1,8 @@
+# Copy this file to terraform.tfvars and fill in your real values.
+# terraform.tfvars is gitignored — never commit it, since in a real project
+# it could contain account-specific identifiers you don't want public.
+
+aws_region             = "eu-central-1"
+project_prefix         = "pdfqa"
+owner_tag              = "Aamir"
+terraform_iam_user_arn = "arn:aws:iam::140023408970:user/aamir-terraform"

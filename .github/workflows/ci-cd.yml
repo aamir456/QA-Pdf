@@ -1,0 +1,143 @@
+name: CI/CD — Build, Push & Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Required for GitHub OIDC token exchange with AWS
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-central-1
+  # Match the ECR repository name from infra/ecr.tf
+  ECR_REPOSITORY: pdfqa-pdf-qa
+  # Match the cluster name from infra/eks.tf  (project_prefix + "-cluster")
+  EKS_CLUSTER_NAME: pdfqa-cluster
+  K8S_NAMESPACE: pdf-qa
+
+jobs:
+  # ------------------------------------------------------------------
+  # Job 1: syntax-check on every push / PR
+  # ------------------------------------------------------------------
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install CPU-only torch + deps
+        run: |
+          pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+          pip install --no-cache-dir -r pdf_qa/requirements.txt
+
+      - name: Syntax check
+        run: |
+          python -m py_compile \
+            pdf_qa/api.py \
+            pdf_qa/query.py \
+            pdf_qa/ingest.py \
+            pdf_qa/config.py \
+            pdf_qa/vector_store.py
+
+  # ------------------------------------------------------------------
+  # Job 2: build → push → deploy (main branch only)
+  # ------------------------------------------------------------------
+  deploy:
+    name: Build, Push & Deploy
+    needs: lint
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Authenticate to AWS via OIDC — no long-lived access keys.
+      # Set the role ARN from: terraform output github_actions_role_arn
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/pdfqa-github-actions
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Use BuildKit layer caching to speed up rebuilds.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        id: build
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          FULL_IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+          docker buildx build \
+            --platform linux/amd64 \
+            --cache-from "$ECR_REGISTRY/$ECR_REPOSITORY:latest" \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            --tag "$FULL_IMAGE" \
+            --tag "$ECR_REGISTRY/$ECR_REPOSITORY:latest" \
+            --push \
+            ./pdf_qa
+
+          echo "full_image=$FULL_IMAGE" >> "$GITHUB_OUTPUT"
+
+      # Pull kubeconfig for the EKS cluster
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "$AWS_REGION"
+
+      # Apply infrastructure manifests (idempotent)
+      - name: Apply base Kubernetes manifests
+        run: |
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/storageclass.yaml
+          kubectl apply -f k8s/configmap.yaml
+          kubectl apply -f k8s/chromadb/
+          kubectl apply -f k8s/query-api/serviceaccount.yaml
+          kubectl apply -f k8s/query-api/hpa.yaml
+
+      # Upsert the Anthropic API key as a Kubernetes secret.
+      # The --dry-run=client | kubectl apply pattern is idempotent.
+      - name: Upsert API key secret
+        run: |
+          kubectl create secret generic pdf-qa-secrets \
+            --from-literal=ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}" \
+            --namespace="$K8S_NAMESPACE" \
+            --save-config \
+            --dry-run=client -o yaml \
+          | kubectl apply -f -
+
+      # Deploy the query-api with the new image (replace placeholder then apply)
+      - name: Deploy query-api
+        env:
+          FULL_IMAGE: ${{ steps.build.outputs.full_image }}
+        run: |
+          sed "s|IMAGE_PLACEHOLDER|$FULL_IMAGE|g" k8s/query-api/deployment.yaml \
+          | kubectl apply -f -
+
+          kubectl rollout status deployment/query-api \
+            --namespace="$K8S_NAMESPACE" \
+            --timeout=300s
+
+      - name: Print LoadBalancer hostname
+        run: |
+          echo "Query API endpoint:"
+          kubectl get service query-api \
+            --namespace="$K8S_NAMESPACE" \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+          echo ""

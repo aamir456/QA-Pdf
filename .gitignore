@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.env
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+pdf_qa/infra/terraform.tfvars
+
+# Docker / build artifacts
+pdf_qa/model.tar.gz
+
+# ChromaDB local vector store
+pdf_qa/data/chroma_db/*
+!pdf_qa/data/chroma_db/.gitkeep
+
+# Local PDFs (keep placeholder only)
+pdf_qa/data/pdfs/*.pdf
+!pdf_qa/data/pdfs/.gitkeep

@@ -1,0 +1,13 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+data/chroma_db/
+model.tar.gz
+infra/
+.terraform/
+*.tfstate
+*.tfstate.backup
+.gitignore

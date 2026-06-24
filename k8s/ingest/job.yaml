@@ -1,0 +1,36 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Append a unique suffix each time you run the job, e.g. ingest-20260625
+  name: ingest
+  namespace: pdf-qa
+  labels:
+    app.kubernetes.io/name: ingest
+    app.kubernetes.io/part-of: pdf-qa
+spec:
+  # Job is considered failed after 3 attempts
+  backoffLimit: 3
+  # Clean up completed/failed pods after 10 minutes
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ingest
+        app.kubernetes.io/part-of: pdf-qa
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: ingest
+          # Use the same image as the query-api — replace with your ECR URI
+          image: IMAGE_PLACEHOLDER
+          command: ["python", "ingest.py"]
+          envFrom:
+            - configMapRef:
+                name: pdf-qa-config
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi

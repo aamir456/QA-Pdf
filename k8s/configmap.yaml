@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pdf-qa-config
+  namespace: pdf-qa
+data:
+  EMBEDDING_MODEL: "all-MiniLM-L6-v2"
+  CLAUDE_MODEL: "claude-sonnet-4-5"
+  COLLECTION_NAME: "pdf_chunks"
+  TOP_K: "4"
+  CHUNK_SIZE: "1000"
+  CHUNK_OVERLAP: "150"
+  CHROMA_HOST: "chromadb"
+  CHROMA_PORT: "8000"
