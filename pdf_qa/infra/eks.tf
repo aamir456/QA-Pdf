@@ -4,15 +4,6 @@
 # GitHub Actions CI/CD (OIDC federation — no long-lived access keys).
 # ---------------------------------------------------------------------------
 
-terraform {
-  required_providers {
-    tls = {
-      source  = "hashicorp/tls"
-      version = "~> 4.0"
-    }
-  }
-}
-
 # ---------------------------------------------------------------------------
 # Cluster IAM role
 # ---------------------------------------------------------------------------
