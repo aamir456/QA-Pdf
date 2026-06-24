@@ -1,8 +1,7 @@
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    SENTENCE_TRANSFORMERS_HOME=/app/models
+    PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
@@ -12,9 +11,6 @@ RUN pip install --no-cache-dir \
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Pre-bake the embedding model (~90 MB) so pods start without internet access
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
 
 COPY . .
 
