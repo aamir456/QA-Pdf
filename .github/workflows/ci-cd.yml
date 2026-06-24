@@ -60,11 +60,11 @@ jobs:
       - uses: actions/checkout@v4
 
       # Authenticate to AWS via OIDC — no long-lived access keys.
-      # Set the role ARN from: terraform output github_actions_role_arn
+      # AWS_ROLE_ARN secret = full ARN from: terraform output github_actions_role_arn
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/pdfqa-github-actions
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
