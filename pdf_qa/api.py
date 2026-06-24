@@ -1,16 +1,23 @@
 """
 FastAPI service wrapping the PDF Q&A query pipeline.
-Exposes /health and /query endpoints for Kubernetes deployment.
+
+Endpoints:
+  GET  /health        — liveness + chunk count
+  POST /upload        — upload a PDF, ingest it into ChromaDB
+  POST /query         — ask a question, get a cited answer
 """
 
+import tempfile
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from anthropic import Anthropic
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 
 import config
+from ingest import ingest_pdf
 from query import SYSTEM_PROMPT, build_prompt
 from vector_store import VectorStore
 
@@ -39,11 +46,45 @@ class QueryResponse(BaseModel):
     sources: list[dict]
 
 
+class UploadResponse(BaseModel):
+    filename: str
+    chunks_ingested: int
+    total_chunks_in_store: int
+
+
 @app.get("/health")
 def health():
     store: VectorStore = _resources.get("store")
     chunk_count = store.count() if store else 0
     return {"status": "ok", "chunks_in_store": chunk_count}
+
+
+@app.post("/upload", response_model=UploadResponse)
+async def upload(file: UploadFile = File(...)):
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are accepted.")
+
+    embedder: SentenceTransformer = _resources["embedder"]
+    store: VectorStore = _resources["store"]
+
+    # Write the uploaded bytes to a temp file so ingest_pdf can read it
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        tmp.write(await file.read())
+        tmp_path = Path(tmp.name)
+        # Rename so the chunk IDs carry the original filename
+        named_path = tmp_path.with_name(file.filename)
+        tmp_path.rename(named_path)
+
+    try:
+        chunks = ingest_pdf(named_path, embedder, store)
+    finally:
+        named_path.unlink(missing_ok=True)
+
+    return UploadResponse(
+        filename=file.filename,
+        chunks_ingested=chunks,
+        total_chunks_in_store=store.count(),
+    )
 
 
 @app.post("/query", response_model=QueryResponse)
@@ -60,7 +101,8 @@ def query(req: QueryRequest):
 
     if not hits:
         raise HTTPException(
-            status_code=503, detail="Vector store is empty. Run the ingest job first."
+            status_code=503,
+            detail="Vector store is empty. Upload a PDF via POST /upload first.",
         )
 
     prompt = build_prompt(req.question, hits)
